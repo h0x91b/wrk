@@ -100,9 +100,10 @@ int main(int argc, char **argv) {
     }
 
     cfg.host = host;
-
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t      = &threads[i];
+        t->connection_id_incr = 0;
+        t->thread_id    = i;
         t->loop        = aeCreateEventLoop(10 + cfg.connections * 3);
         t->connections = cfg.connections / cfg.threads;
 
@@ -206,7 +207,7 @@ void *thread_main(void *arg) {
     size_t length = 0;
 
     if (!cfg.dynamic) {
-        script_request(thread->L, &request, &length);
+        script_request(thread->L, &request, &length, "1", 1);
     }
 
     thread->cs = zcalloc(thread->connections * sizeof(connection));
@@ -218,6 +219,8 @@ void *thread_main(void *arg) {
         c->request = request;
         c->length  = length;
         c->delayed = cfg.delay;
+        c->request_id = 0;
+        c->connection_id = thread->connection_id_incr++;
         connect_socket(thread, c);
     }
 
@@ -322,6 +325,7 @@ static int response_body(http_parser *parser, const char *at, size_t len) {
 }
 
 static int response_complete(http_parser *parser) {
+    static char tmp[128] = {0};
     connection *c = parser->data;
     thread *thread = c->thread;
     uint64_t now = time_us();
@@ -336,7 +340,8 @@ static int response_complete(http_parser *parser) {
 
     if (c->headers.buffer) {
         *c->headers.cursor++ = '\0';
-        script_response(thread->L, status, &c->headers, &c->body);
+        sprintf(tmp, "%lld:%lld:%lld", thread->thread_id, c->connection_id, c->request_id);
+        script_response(thread->L, status, &c->headers, &c->body, tmp, 128);
         c->state = FIELD;
     }
 
@@ -382,6 +387,7 @@ static void socket_connected(aeEventLoop *loop, int fd, void *data, int mask) {
 }
 
 static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
+    static char tmp[128] = {0};
     connection *c = data;
     thread *thread = c->thread;
 
@@ -394,7 +400,9 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
 
     if (!c->written) {
         if (cfg.dynamic) {
-            script_request(thread->L, &c->request, &c->length);
+            c->request_id++;
+            sprintf(tmp, "%lld:%lld:%lld", thread->thread_id, c->connection_id, c->request_id);
+            script_request(thread->L, &c->request, &c->length, tmp, 128);
         }
         c->start   = time_us();
         c->pending = cfg.pipeline;
