@@ -156,9 +156,11 @@ void script_request(lua_State *L, char **buf, size_t *len, const char* request_i
         lua_getglobal(L, "wrk");
         lua_getfield(L, -1, "request");
         pop += 2;
+        lua_call(L, 0, 1);
+    } else {
+        lua_pushlstring(L, request_id, request_id_len);
+        lua_call(L, 1, 1);
     }
-    lua_pushlstring(L, request_id, request_id_len);
-    lua_call(L, 1, 1);
     const char *str = lua_tolstring(L, -1, len);
     *buf = realloc(*buf, *len);
     memcpy(*buf, str, *len);
