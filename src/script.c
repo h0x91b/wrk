@@ -148,25 +148,29 @@ uint64_t script_delay(lua_State *L) {
     return delay;
 }
 
-void script_request(lua_State *L, char **buf, size_t *len, uint64_t request_id) {
+void script_request(lua_State *L, char **buf, size_t *len, char **request_id, size_t *request_id_len) {
     int pop = 1;
     lua_getglobal(L, "request");
     if (!lua_isfunction(L, -1)) {
         lua_getglobal(L, "wrk");
         lua_getfield(L, -1, "request");
         pop += 2;
-        lua_call(L, 0, 1);
+        lua_call(L, 0, 2);
     } else {
         lua_pushinteger(L, request_id);
-        lua_call(L, 1, 1);
+        lua_call(L, 1, 2);
     }
+    if(request_id && lua_type(L, -1) == LUA_TSTRING) {
+        memcpy(*request_id, lua_tolstring(L, -1, request_id_len), *request_id_len);
+    }
+    lua_pop(L, 1);
     const char *str = lua_tolstring(L, -1, len);
     *buf = realloc(*buf, *len);
     memcpy(*buf, str, *len);
     lua_pop(L, pop);
 }
 
-void script_response(lua_State *L, int status, buffer *headers, buffer *body, uint64_t request_id) {
+void script_response(lua_State *L, int status, buffer *headers, buffer *body, const char *request_id, const size_t request_id_len) {
     lua_getglobal(L, "response");
     lua_pushinteger(L, status);
     lua_newtable(L);
@@ -178,8 +182,12 @@ void script_response(lua_State *L, int status, buffer *headers, buffer *body, ui
     }
 
     lua_pushlstring(L, body->buffer, body->cursor - body->buffer);
-    lua_pushinteger(L, request_id);
-    lua_call(L, 4, 0);
+    if(request_id) {
+        lua_pushlstring(L, request_id, request_id_len);
+        lua_call(L, 4, 0);
+    } else {
+        lua_call(L, 3, 0);
+    }
 
     buffer_reset(headers);
     buffer_reset(body);
@@ -276,7 +284,7 @@ size_t script_verify_request(lua_State *L) {
     char *request = NULL;
     size_t len, count = 0;
 
-    script_request(L, &request, &len, 0);
+    script_request(L, &request, &len, NULL, 0);
     http_parser_init(&parser, HTTP_REQUEST);
     parser.data = &count;
 

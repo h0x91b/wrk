@@ -148,7 +148,6 @@ int main(int argc, char **argv) {
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
-        t->request_id = 0;
         pthread_join(t->thread, NULL);
 
         complete += t->complete;
@@ -207,7 +206,7 @@ void *thread_main(void *arg) {
     size_t length = 0;
 
     if (!cfg.dynamic) {
-        script_request(thread->L, &request, &length, 0);
+        script_request(thread->L, &request, &length, NULL, 0);
     }
     
     thread->cs = zcalloc(thread->connections * sizeof(connection));
@@ -269,6 +268,7 @@ static int reconnect_socket(thread *thread, session *sess) {
     aeDeleteFileEvent(thread->loop, c->fd, AE_WRITABLE | AE_READABLE);
     sock.close(c);
     close(c->fd);
+    zfree(sess->id);
     zfree(sess);
     return connect_socket(thread, c);
 }
@@ -344,7 +344,7 @@ static int response_complete(http_parser *parser) {
 
     if (c->headers.buffer) {
         *c->headers.cursor++ = '\0';
-        script_response(thread->L, status, &c->headers, &c->body, sess->id);
+        script_response(thread->L, status, &c->headers, &c->body, sess->id, sess->len);
         c->state = FIELD;
     }
 
@@ -360,9 +360,6 @@ static int response_complete(http_parser *parser) {
         reconnect_socket(thread, sess);
         goto done;
     }
-    
-    sess->id = thread->requests++;
-
     http_parser_init(parser, HTTP_RESPONSE);
 
   done:
@@ -372,7 +369,8 @@ static int response_complete(http_parser *parser) {
 static void socket_connected(aeEventLoop *loop, int fd, void *data, int mask) {
     connection *c = data;
     session *sess = zcalloc(sizeof(session));
-    sess->id = c->thread->request_id++;
+    sess->len = 128;
+    sess->id = zcalloc(sess->len);
     sess->c = c;
     c->parser.data = sess;
     switch (sock.connect(c, cfg.host)) {
@@ -410,7 +408,7 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
 
     if (!c->written) {
         if (cfg.dynamic) {
-            script_request(thread->L, &c->request, &c->length, sess->id);
+            script_request(thread->L, &c->request, &c->length, &sess->id, &sess->len);
         }
         c->start   = time_us();
         c->pending = cfg.pipeline;

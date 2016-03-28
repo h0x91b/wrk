@@ -33,7 +33,6 @@ typedef struct {
     uint64_t requests;
     uint64_t bytes;
     uint64_t start;
-    uint64_t request_id;
     lua_State *L;
     errors errors;
     struct connection *cs;
@@ -65,7 +64,8 @@ typedef struct connection {
 } connection;
 
 typedef struct session {
-    uint64_t id;
+    char *id;
+    size_t len;
     connection *c;
 } session;
 
