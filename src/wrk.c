@@ -379,7 +379,6 @@ static void socket_connected(aeEventLoop *loop, int fd, void *data, int mask) {
         case RETRY: return;
     }
     
-    // c->parser.data = sess;
     http_parser_init(&c->parser, HTTP_RESPONSE);
     c->written = 0;
 
@@ -389,7 +388,6 @@ static void socket_connected(aeEventLoop *loop, int fd, void *data, int mask) {
     return;
 
   error:
-  printf("errr\n");
     c->thread->errors.connect++;
     reconnect_socket(c->thread, sess);
 }
@@ -458,7 +456,6 @@ static void socket_readable(aeEventLoop *loop, int fd, void *data, int mask) {
     return;
 
   error:
-    printf("err %d\n", errno);
     c->thread->errors.read++;
     reconnect_socket(c->thread, sess);
 }
